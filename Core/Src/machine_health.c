@@ -26,29 +26,27 @@ void machine_health_task(void) {
     while (1) {
         printf("--- ACTIVE MODE: Starting Data Collection ---\r\n");
 
-        // 1. Acquire microphone data via DFSDM + DMA
+        // Acquire microphone data via DFSDM + DMA
         mic_dma_finished = 0;
         if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, mic_buffer, INPUT_SIZE) != HAL_OK) {
             printf("Error: Failed to start DFSDM!\r\n");
             Error_Handler();
         }
 
-        while (!mic_dma_finished) {
-            // Wait for DMA to finish
-        }
+        while (!mic_dma_finished) {}
 
         if (HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0) != HAL_OK) {
             printf("Error: Failed to stop DFSDM!\r\n");
             Error_Handler();
         }
 
-        // 2. Pre-process: Convert to float and zero-pad for FFT
+        // Pre-process: Convert to float and zero-pad for FFT
         memset(in_buffer, 0, sizeof(in_buffer));
         for (int i = 0; i < INPUT_SIZE; i++) {
             in_buffer[i] = (float)mic_buffer[i];
         }
 
-        // 3. Detect Anomaly
+        // Detect Anomaly
         bool anomaly = detect_anomaly(in_buffer, FFT_SIZE);
 
         if (anomaly) {
@@ -63,7 +61,7 @@ void machine_health_task(void) {
             HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
         }
         
-        // 5. Sleep for 5 seconds
+        // Sleep for 5 seconds
         PM_EnterSleep(5);
     }
 }

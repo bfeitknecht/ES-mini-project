@@ -11,10 +11,10 @@ extern RTC_HandleTypeDef hrtc;
 
 void PM_EnterSleep(uint32_t seconds) {
     if (seconds == 0) return;
-    // 1. Suspend SysTick to prevent 1ms wakeups
+    // Suspend SysTick to prevent 1ms wakeups
     HAL_SuspendTick();
 
-    // 2. Configure RTC Wakeup Timer
+    // Configure RTC Wakeup Timer
     // Using RTCCLK/16. If LSE = 32.768kHz, RTCCLK/16 = 2048Hz.
     uint32_t wakeup_counter = (seconds * 2048) - 1;
     
@@ -22,14 +22,14 @@ void PM_EnterSleep(uint32_t seconds) {
         Error_Handler();
     }
 
-    // 3. Enter Sleep Mode
+    // Enter Sleep Mode
     printf("INFO: sleep for %lu seconds\r\n", seconds);
     HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
     printf("INFO: woke up!\r\n");
 
-    // 4. Deactivate RTC Wakeup Timer after wakeup
+    // Deactivate RTC Wakeup Timer after wakeup
     HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
 
-    // 5. Resume SysTick
+    // Resume SysTick
     HAL_ResumeTick();
 }
