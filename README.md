@@ -14,23 +14,25 @@ The application follows a periodic monitoring cycle:
 ## Key Components
 
 ### 1. Data Acquisition (DFSDM + DMA)
-The system uses the **Digital Filter for Sigma Delta Modulators (DFSDM)** peripheral to interface with a digital microphone.
-- **DFSDM Configuration**: Configured with a Sinc4 filter and an oversampling ratio to achieve a sampling frequency ($f_s$) of approximately 16.5 kHz.
-- **DMA**: Direct Memory Access is used to transfer samples from the DFSDM filter to a buffer in RAM without CPU intervention, ensuring high efficiency and no dropped samples.
-- **Synchronization**: The application polls a `volatile` flag (`mic_dma_finished_flag`) which is set in the `HAL_DFSDM_FilterRegConvCpltCallback` when the buffer is full.
+The system uses the **Digital Filter for Sigma Delta Modulators (DFSDM)** peripheral to interface with a digital microphone (acting as a vibration sensor).
+- **DFSDM Configuration**: Configured with a Sinc4 filter and an oversampling ratio to achieve a sampling frequency ($f_s$) of **100 Hz**.
+- **DMA**: Direct Memory Access is used to transfer samples from the DFSDM filter to a buffer in RAM without CPU intervention.
+- **Synchronization**: The application polls a `volatile bool` flag (`mic_dma_finished`) which is set in the `HAL_DFSDM_FilterRegConvCpltCallback` when the buffer is full.
 
-### 2. Signal Processing (CMSIS-DSP RFFT)
-Once a buffer of 2048 samples is collected, the system performs a **Real Fast Fourier Transform (RFFT)**.
-- **Library**: Uses the ARM CMSIS-DSP library for optimized performance on the Cortex-M4 core.
-- **Windowing**: (Currently stubbed) Pre-processing converts raw 32-bit integer samples to 32-bit floats.
-- **Magnitude Calculation**: The complex FFT output is converted to a magnitude spectrum using `arm_cmplx_mag_f32`.
-- **DC Removal**: The 0Hz component is cleared to remove any DC offset from the microphone.
+### 2. Signal Processing
+Once a buffer of **100 samples** is collected (representing **1 second** of data), the system performs frequency analysis.
+- **Top-level Entry**: `detect_anomaly` acts as the main entry point.
+- **Conditional Processing**: Based on a internal flag, it calls either:
+    - `decompose_spectrum`: Uses the optimized **ARM CMSIS-DSP RFFT** library (zero-padded to 128).
+    - `expensive_decompose_spectrum`: Uses a manual **O(N^2) DFT** implementation for performance comparison.
+- **Magnitude Calculation**: The complex FFT/DFT output is converted to a magnitude spectrum.
+- **DC Removal**: The 0Hz component is cleared to remove any DC offset.
 
 ### 3. Anomaly Detection
-The `detect_anomaly` function in [Core/Src/machine_health.c](Core/Src/machine_health.c) currently implements a threshold-based stub:
+The `detect_anomaly` function in [Core/Src/machine_health.c](Core/Src/machine_health.c) implements a threshold-based logic:
 - It finds the maximum magnitude in the frequency spectrum.
 - If the maximum exceeds a predefined threshold, an anomaly is flagged.
-- *Note: This is a placeholder for more sophisticated algorithms (e.g., spectral envelope comparison or machine learning models).*
+- *Note: This is a placeholder for more sophisticated algorithms.*
 
 ### 4. User Interface & Feedback
 - **UART Console**: Status messages ("NORMAL" or "ANOMALY DETECTED") and system logs are printed to UART2 (115200 baud).

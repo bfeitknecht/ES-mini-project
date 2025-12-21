@@ -46,7 +46,7 @@ extern DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 extern DFSDM_Channel_HandleTypeDef hdfsdm1_channel3;
 extern DMA_HandleTypeDef hdma_dfsdm1_flt0;
 extern RTC_HandleTypeDef hrtc;
-extern volatile int mic_dma_finished;
+extern volatile bool mic_dma_finished;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

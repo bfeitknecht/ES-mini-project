@@ -8,12 +8,14 @@
 #include "power_manager.h"
 #include <stdio.h>
 
-#define INPUT_SIZE 128
-#define FS         100
+#define INPUT_SIZE 100  // 1 second of data at 100Hz
+#define FFT_SIZE   128  // Power of 2 for CMSIS-DSP
+#define MAGNITUDE_THRESHOLD         1000000.0f
+
 
 static int32_t mic_buffer[INPUT_SIZE];
-static float in_buffer[INPUT_SIZE];
-static float fft_buffer[INPUT_SIZE];
+static float in_buffer[FFT_SIZE];
+static float fft_buffer[FFT_SIZE];
 
 static bool expensive_decompose = 1;
 
@@ -24,7 +26,7 @@ void machine_health_task(void) {
     while (1) {
         printf("--- ACTIVE MODE: Starting Data Collection ---\r\n");
 
-        // 1. Acquire microphone data
+        // 1. Acquire microphone data via DFSDM + DMA
         mic_dma_finished = 0;
         if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, mic_buffer, INPUT_SIZE) != HAL_OK) {
             printf("Error: Failed to start DFSDM!\r\n");
@@ -40,17 +42,18 @@ void machine_health_task(void) {
             Error_Handler();
         }
 
-        // 2. Pre-process: Convert to float
+        // 2. Pre-process: Convert to float and zero-pad for FFT
+        memset(in_buffer, 0, sizeof(in_buffer));
         for (int i = 0; i < INPUT_SIZE; i++) {
             in_buffer[i] = (float)mic_buffer[i];
         }
 
         // 3. Detect Anomaly
-        bool anomaly = detect_anomaly(in_buffer, INPUT_SIZE);
+        bool anomaly = detect_anomaly(in_buffer, FFT_SIZE);
 
         if (anomaly) {
-            printf("STATUS: ANOMALY DETECTED!\r\n");
-            // FIX: LEDs doesn't work yet
+            printf("WARNING: ANOMALY DETECTED!\r\n");
+            // FIX: LED don't work
             // Flash LED to indicate anomaly
             // for (int i = 0; i < 10; i++) {
             //     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
@@ -58,14 +61,13 @@ void machine_health_task(void) {
             // }
             // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET); // Leave it on
         } else {
-            // FIX: LED don't work
             // printf("STATUS: NORMAL\r\n");
             // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
         }
         
         // 5. Sleep for 5 seconds
         PM_EnterSleep(5);
-        }
+    }
 }
 
 bool detect_anomaly(float *in_buffer, uint32_t size) {
@@ -77,13 +79,11 @@ bool detect_anomaly(float *in_buffer, uint32_t size) {
         decompose_spectrum(in_buffer, size);
     }
 
-    // Shared anomaly detection logic
+    // Simple anomaly detection: Check if max magnitude exceeds threshold
     float max_val;
     uint32_t max_idx;
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-
-    // Arbitrary threshold for demonstration
-    if (max_val > 1000000.0f) { 
+    if (max_val > MAGNITUDE_THRESHOLD) { 
         return 1;
     }
 
@@ -92,6 +92,7 @@ bool detect_anomaly(float *in_buffer, uint32_t size) {
 
 void decompose_spectrum(float *in_buffer, uint32_t size) {
     // Perform FFT using CMSIS-DSP
+
     static arm_rfft_fast_instance_f32 S;
     static bool is_init = 0;
     if (!is_init) {
@@ -101,13 +102,12 @@ void decompose_spectrum(float *in_buffer, uint32_t size) {
 
     arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
     arm_cmplx_mag_f32(fft_buffer, fft_buffer, size / 2);
+    
     fft_buffer[0] = 0; // Remove DC component
 }
 
 void expensive_decompose_spectrum(float *in_buffer, uint32_t size) {
     // Naive DFT implementation: O(N^2)
-    // This is intentionally slow to demonstrate the difference between 
-    // optimized library/hardware implementations and naive software ones.
     
     for (uint32_t k = 0; k < size / 2; k++) {
         float real_sum = 0.0f;
@@ -119,5 +119,6 @@ void expensive_decompose_spectrum(float *in_buffer, uint32_t size) {
         }
         fft_buffer[k] = sqrtf(real_sum * real_sum + imag_sum * imag_sum);
     }
+
     fft_buffer[0] = 0; // Remove DC component
 }

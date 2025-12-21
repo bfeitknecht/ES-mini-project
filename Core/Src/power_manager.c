@@ -25,13 +25,11 @@ void PM_EnterSleep(uint32_t seconds) {
     // 3. Enter Sleep Mode
     printf("INFO: sleep for %lu seconds\r\n", seconds);
     HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+    printf("INFO: woke up!\r\n");
 
     // 4. Deactivate RTC Wakeup Timer after wakeup
     HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
 
     // 5. Resume SysTick
     HAL_ResumeTick();
-
-    // 6. Log wakeup
-    printf("INFO: woke up!\r\n");
 }

@@ -23,13 +23,16 @@ This file contains concise, actionable guidance for AI coding agents working on 
 
 - **Runtime / debug patterns:** : `printf` is used to emit results via UART2 — check `Core/Src/main.c` and `syscalls.c` for retargeting. The system performs periodic checks with a 5-second sleep interval using `HAL_PWR_EnterSLEEPMode`.
 
-- **Concurrency / callbacks:** : DMA + DFSDM are used to acquire mic samples. The HAL callback `HAL_DFSDM_FilterRegConvCpltCallback` sets a `volatile` flag (`mic_dma_finished_flag` in `main.c`) that the main task polls. Use/maintain this pattern when changing acquisition logic.
+- **Concurrency / callbacks:** : DMA + DFSDM are used to acquire mic samples. The HAL callback `HAL_DFSDM_FilterRegConvCpltCallback` sets a `volatile bool` flag (`mic_dma_finished` in `main.c`) that the main task polls. Use/maintain this pattern when changing acquisition logic.
 
 - **Code conventions & patterns to follow:**
 
   - Keep hardware init code in generated `MX_*` functions; place algorithmic code in `Core/Src/machine_health.c`.
   - Prefer adding helpers in `Core/Inc` and include headers from existing modules.
   - Use fixed-size buffers defined close to their use (see `INPUT_SIZE` in `machine_health.c`). Be mindful of stack vs. static allocation on embedded targets.
+  - Anomaly detection is handled by `detect_anomaly`, which conditionally calls `decompose_spectrum` (CMSIS-DSP) or `expensive_decompose_spectrum` (manual DFT) based on a switch flag.
+  - Sample rate is configured for 100Hz with a 100-sample buffer (1s) to allow for performance comparison of $O(N^2)$ algorithms.
+  - Use `bool` for flags and status variables where appropriate.
 
 - **Tests / verification:** : No unit tests provided. Verify changes on hardware (UART output) or by adding host-side small test harnesses that simulate input buffers.
 
