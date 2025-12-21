@@ -35,6 +35,6 @@ void decompose_spectrum(float *in_buffer, uint32_t size);
  * @param in_buffer Pointer to the input time-domain buffer.
  * @param size Size of the input buffer.
  */
-void decompose_spectrum_expensive(float *in_buffer, uint32_t size);
+void expensive_decompose_spectrum(float *in_buffer, uint32_t size);
 
 #endif /* MACHINE_HEALTH_H_ */

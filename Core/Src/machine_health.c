@@ -8,14 +8,14 @@
 #include "power_manager.h"
 #include <stdio.h>
 
-#define INPUT_SIZE 2048
-#define FS         16477
+#define INPUT_SIZE 128
+#define FS         100
 
 static int32_t mic_buffer[INPUT_SIZE];
 static float in_buffer[INPUT_SIZE];
 static float fft_buffer[INPUT_SIZE];
 
-static bool use_expensive_detection = true;
+static bool expensive_decompose = 1;
 
 void machine_health_task(void) {
     printf("\r\n");
@@ -25,13 +25,13 @@ void machine_health_task(void) {
         printf("--- ACTIVE MODE: Starting Data Collection ---\r\n");
 
         // 1. Acquire microphone data
-        mic_dma_finished_flag = 0;
+        mic_dma_finished = 0;
         if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, mic_buffer, INPUT_SIZE) != HAL_OK) {
             printf("Error: Failed to start DFSDM!\r\n");
             Error_Handler();
         }
 
-        while (!mic_dma_finished_flag) {
+        while (!mic_dma_finished) {
             // Wait for DMA to finish
         }
 
@@ -50,16 +50,17 @@ void machine_health_task(void) {
 
         if (anomaly) {
             printf("STATUS: ANOMALY DETECTED!\r\n");
+            // FIX: LEDs doesn't work yet
             // Flash LED to indicate anomaly
-            // FIX: doesn't work yet
             // for (int i = 0; i < 10; i++) {
             //     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             //     HAL_Delay(100);
             // }
             // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET); // Leave it on
         } else {
+            // FIX: LED don't work
             // printf("STATUS: NORMAL\r\n");
-            HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+            // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
         }
         
         // 5. Sleep for 5 seconds
@@ -68,9 +69,9 @@ void machine_health_task(void) {
 }
 
 bool detect_anomaly(float *in_buffer, uint32_t size) {
-    if (use_expensive_detection) {
+    if (expensive_decompose) {
         printf("INFO: Running expensive manual DFT...\r\n");
-        decompose_spectrum_expensive(in_buffer, size);
+        expensive_decompose_spectrum(in_buffer, size);
     } else {
         printf("INFO: Running efficient CMSIS-DSP FFT...\r\n");
         decompose_spectrum(in_buffer, size);
@@ -83,19 +84,19 @@ bool detect_anomaly(float *in_buffer, uint32_t size) {
 
     // Arbitrary threshold for demonstration
     if (max_val > 1000000.0f) { 
-        return true;
+        return 1;
     }
 
-    return false;
+    return 0;
 }
 
 void decompose_spectrum(float *in_buffer, uint32_t size) {
     // Perform FFT using CMSIS-DSP
     static arm_rfft_fast_instance_f32 S;
-    static bool is_init = false;
+    static bool is_init = 0;
     if (!is_init) {
         arm_rfft_fast_init_f32(&S, size);
-        is_init = true;
+        is_init = 1;
     }
 
     arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
@@ -103,7 +104,7 @@ void decompose_spectrum(float *in_buffer, uint32_t size) {
     fft_buffer[0] = 0; // Remove DC component
 }
 
-void decompose_spectrum_expensive(float *in_buffer, uint32_t size) {
+void expensive_decompose_spectrum(float *in_buffer, uint32_t size) {
     // Naive DFT implementation: O(N^2)
     // This is intentionally slow to demonstrate the difference between 
     // optimized library/hardware implementations and naive software ones.

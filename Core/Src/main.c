@@ -39,7 +39,7 @@ RTC_HandleTypeDef hrtc;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-volatile int mic_dma_finished_flag;
+volatile int mic_dma_finished;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -340,7 +340,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter) {
   UNUSED(hdfsdm_filter);
-  mic_dma_finished_flag = 1;
+  mic_dma_finished = 1;
 }
 /* USER CODE END 4 */
 
