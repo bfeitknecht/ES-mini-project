@@ -21,36 +21,33 @@ static bool expensive_decompose = 1;
 
 void machine_health_task(void) {
     printf("\r\n");
-    printf("Machine Health Indicator Task Started\r\n");
+    printf("Machine Health Detection Started\r\n");
 
     while (1) {
-        printf("--- ACTIVE MODE: Starting Data Collection ---\r\n");
-
+        printf("--- ACTIVE MODE ---\r\n");
+        
         // Acquire microphone data via DFSDM + DMA
         mic_dma_finished = 0;
         if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, mic_buffer, INPUT_SIZE) != HAL_OK) {
-            printf("Error: Failed to start DFSDM!\r\n");
+            printf("ERROR: Failed to start DFSDM!\r\n");
             Error_Handler();
         }
-
         while (!mic_dma_finished) {}
-
         if (HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0) != HAL_OK) {
-            printf("Error: Failed to stop DFSDM!\r\n");
+            printf("ERROR: Failed to stop DFSDM!\r\n");
             Error_Handler();
         }
-
+        
         // Pre-process: Convert to float and zero-pad for FFT
         memset(in_buffer, 0, sizeof(in_buffer));
         for (int i = 0; i < INPUT_SIZE; i++) {
             in_buffer[i] = (float)mic_buffer[i];
         }
-
+        
         // Detect Anomaly
         bool anomaly = detect_anomaly(in_buffer, FFT_SIZE);
-
         if (anomaly) {
-            printf("WARNING: ANOMALY DETECTED!\r\n");
+            printf("WARNING: Anomaly detected!\r\n");
             // Flash LED to indicate anomaly
             for (int i = 0; i < 10; i++) {
                 HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
@@ -62,16 +59,18 @@ void machine_health_task(void) {
         }
         
         // Sleep for 5 seconds
+        printf("--- SLEEP MODE ---\r\n");
         PM_EnterSleep(5);
+        printf("\r\n");
     }
 }
 
 bool detect_anomaly(float *in_buffer, uint32_t size) {
     if (expensive_decompose) {
-        printf("INFO: Running expensive manual DFT...\r\n");
+        printf("INFO: Running expensive manual DFT\r\n");
         expensive_decompose_spectrum(in_buffer, size);
     } else {
-        printf("INFO: Running efficient CMSIS-DSP FFT...\r\n");
+        printf("INFO: Running efficient CMSIS-DSP FFT\r\n");
         decompose_spectrum(in_buffer, size);
     }
 
@@ -90,10 +89,10 @@ void decompose_spectrum(float *in_buffer, uint32_t size) {
     // Perform FFT using CMSIS-DSP
 
     static arm_rfft_fast_instance_f32 S;
-    static bool is_init = 0;
-    if (!is_init) {
+    static bool decomposition_initialized = 0;
+    if (!decomposition_initialized) {
         arm_rfft_fast_init_f32(&S, size);
-        is_init = 1;
+        decomposition_initialized = 1;
     }
 
     arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
@@ -103,7 +102,7 @@ void decompose_spectrum(float *in_buffer, uint32_t size) {
 }
 
 void expensive_decompose_spectrum(float *in_buffer, uint32_t size) {
-    // Naive DFT implementation: O(N^2)
+    // Manual DFT implementation: O(N^2)
     
     for (uint32_t k = 0; k < size / 2; k++) {
         float real_sum = 0.0f;

@@ -11,6 +11,7 @@ extern RTC_HandleTypeDef hrtc;
 
 void PM_EnterSleep(uint32_t seconds) {
     if (seconds == 0) return;
+    
     // Suspend SysTick to prevent 1ms wakeups
     HAL_SuspendTick();
 
