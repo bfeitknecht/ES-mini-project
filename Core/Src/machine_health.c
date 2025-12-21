@@ -53,16 +53,14 @@ void machine_health_task(void) {
 
         if (anomaly) {
             printf("WARNING: ANOMALY DETECTED!\r\n");
-            // FIX: LED don't work
             // Flash LED to indicate anomaly
-            // for (int i = 0; i < 10; i++) {
-            //     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-            //     HAL_Delay(100);
-            // }
-            // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET); // Leave it on
+            for (int i = 0; i < 10; i++) {
+                HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+                HAL_Delay(100);
+            }
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
         } else {
-            // printf("STATUS: NORMAL\r\n");
-            // HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
         }
         
         // 5. Sleep for 5 seconds
