@@ -94,6 +94,8 @@ static float calculate_band_energy(float *fft_buffer, uint32_t start_hz, uint32_
     return energy;
 }
 
+int toggle_algorithm = 0; // 0: CMSIS, 1: KISS
+
 /**
  * @brief Compares KISS FFT and CMSIS-DSP FFT performance and detects anomalies.
  * 
@@ -108,22 +110,24 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     uint32_t max_idx;
     float res = (float)FS / size;
 
-    // KISS FFT (Baseline)
-    start = DWT->CYCCNT;
-    decompose_kiss(in_buffer, fft_buffer, size);
-    stop = DWT->CYCCNT;
-    
-    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("KISS FFT:  %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
-
-    // CMSIS FFT (Optimized)
-    start = DWT->CYCCNT;
-    decompose_cmsis(in_buffer, fft_buffer, size);
-    stop = DWT->CYCCNT;
-    
-    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
+    if (toggle_algorithm) {
+        // KISS FFT (Baseline)
+        start = DWT->CYCCNT;
+        decompose_kiss(in_buffer, fft_buffer, size);
+        stop = DWT->CYCCNT;
+        
+        arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
+        printf("KISS FFT:  %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
+    } else {
+        // CMSIS FFT (Optimized)
+        start = DWT->CYCCNT;
+        decompose_cmsis(in_buffer, fft_buffer, size);
+        stop = DWT->CYCCNT;
+        
+        arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
+        printf("CMSIS FFT: %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
+    }
 
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
@@ -134,6 +138,7 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     printf("  Normal Band Energy (0-500Hz):   %.2e\r\n", normal_energy);
     printf("  Problem Band Energy (1k-8kHz):  %.2e\r\n", problem_energy);
     printf("  Energy Ratio (P/N):             %.4f (Threshold: %.2f)\r\n", ratio, ANOMALY_RATIO_THRESHOLD);
+    printf("\r\n");
 
     return (ratio > ANOMALY_RATIO_THRESHOLD);
 }
@@ -151,7 +156,7 @@ void reset_led_matrix(void) {
   HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
 }
 
-void signal_normal() {
+void signal_normal(void) {
     reset_led_matrix();
     uint8_t buf[] = {
         0x00,
@@ -167,7 +172,7 @@ void signal_normal() {
     reset_led_matrix();
 }
 
-void signal_error() {
+void signal_error(void) {
     reset_led_matrix();
 
     uint8_t buf[] = {
@@ -182,6 +187,36 @@ void signal_error() {
     HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
 }
 
+/**
+ * @brief Computes and prints estimated energy and power usage.
+ * 
+ * @param active_cycles Number of CPU cycles spent in active mode.
+ * @param sleep_seconds Number of seconds spent in sleep mode.
+ */
+static void print_power_metrics(uint32_t active_cycles, uint32_t sleep_seconds) {
+    const float vdd = 3.3f;        // Volts
+    const float i_run = 8.4e-3f;   // Amps (8.4 mA)
+    const float i_sleep = 2.3e-3f; // Amps (2.3 mA)
+    const uint32_t f_cpu = 80000000;
+
+    float t_active = (float)active_cycles / f_cpu;
+    float t_sleep = (float)sleep_seconds;
+    float t_total = t_active + t_sleep;
+
+    float e_active = vdd * i_run * t_active;
+    float e_sleep = vdd * i_sleep * t_sleep;
+    float e_total = e_active + e_sleep;
+
+    float p_avg = e_total / t_total;
+
+    printf("INFO: Power Metrics\r\n");
+    printf("  Active Time:  %10.3f ms\r\n", t_active * 1000.0f);
+    printf("  Sleep Time:   %10.3f s\r\n", t_sleep);
+    printf("  Energy/Cycle: %10.3f mJ\r\n", e_total * 1000.0f);
+    printf("  Avg Power:    %10.3f mW\r\n", p_avg * 1000.0f);
+    printf("\r\n");
+    
+}
 
 /**
  * @brief Main task for Machine Health Detection.
@@ -205,6 +240,7 @@ void machine_health_task(void) {
     }
 
     while (1) {
+        DWT->CYCCNT = 0;
         printf("--- ACTIVE MODE ---\r\n");
         
         // Acquire microphone data via DFSDM + DMA
@@ -226,6 +262,7 @@ void machine_health_task(void) {
         }
         
         // Detect Anomaly
+        toggle_algorithm = !toggle_algorithm;
         bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
         if (anomaly) {
             printf("WARNING: Anomaly detected!\r\n");
@@ -234,7 +271,9 @@ void machine_health_task(void) {
             signal_normal();
         }
         
-        printf("\r\n");
+        uint32_t active_cycles = DWT->CYCCNT;
+        print_power_metrics(active_cycles, 5);
+
         // Sleep for 5 seconds
         printf("--- SLEEP MODE ---\r\n");
         PM_EnterSleep(5);
