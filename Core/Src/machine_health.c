@@ -135,10 +135,9 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     float ratio = problem_energy / (normal_energy + 1e-6f);
     
     printf("INFO: Detection Metrics:\r\n");
-    printf("  Normal Band Energy (0-500Hz):   %.2e\r\n", normal_energy);
-    printf("  Problem Band Energy (1k-8kHz):  %.2e\r\n", problem_energy);
-    printf("  Energy Ratio (P/N):             %.4f (Threshold: %.2f)\r\n", ratio, ANOMALY_RATIO_THRESHOLD);
-    printf("\r\n");
+    printf("  Normal Band Energy (0-500Hz):\t%.2e\r\n", normal_energy);
+    printf("  Problem Band Energy (1k-8kHz):\t%.2e\r\n", problem_energy);
+    printf("  Energy Ratio (P/N):\t%.4f (Threshold: %.2f)\r\n", ratio, ANOMALY_RATIO_THRESHOLD);
 
     return (ratio > ANOMALY_RATIO_THRESHOLD);
 }
@@ -210,12 +209,10 @@ static void print_power_metrics(uint32_t active_cycles, uint32_t sleep_seconds) 
     float p_avg = e_total / t_total;
 
     printf("INFO: Power Metrics\r\n");
-    printf("  Active Time:  %10.3f ms\r\n", t_active * 1000.0f);
-    printf("  Sleep Time:   %10.3f s\r\n", t_sleep);
-    printf("  Energy/Cycle: %10.3f mJ\r\n", e_total * 1000.0f);
-    printf("  Avg Power:    %10.3f mW\r\n", p_avg * 1000.0f);
-    printf("\r\n");
-    
+    printf("  Active Time:\t\t%10.3f ms\r\n", t_active * 1000.0f);
+    printf("  Sleep Time:\t\t%10.3f s\r\n", t_sleep);
+    printf("  Energy/Cycle:\t\t%10.3f mJ\r\n", e_total * 1000.0f);
+    printf("  Avg Power:\t\t%10.3f mW\r\n", p_avg * 1000.0f);
 }
 
 /**
@@ -228,7 +225,10 @@ void machine_health_task(void) {
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
     printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
-
+    
+    uint32_t sysclk = HAL_RCC_GetSysClockFreq();
+    printf("System Clock Frequency: %" PRIu32 " Hz\r\n", sysclk);
+    
     // Enable the DWT cycle counter:
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0;
@@ -263,18 +263,22 @@ void machine_health_task(void) {
         
         // Detect Anomaly
         toggle_algorithm = !toggle_algorithm;
-        bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
-        if (anomaly) {
-            printf("WARNING: Anomaly detected!\r\n");
-            signal_error();
-        } else {
-            signal_normal();
+        for (int i = 0; i < 10; i++) {
+            bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
+            if (anomaly) {
+                printf("WARNING: Anomaly detected!\r\n");
+                signal_error();
+            } else {
+                signal_normal();
+            }
+            
+            uint32_t active_cycles = DWT->CYCCNT;
+            print_power_metrics(active_cycles, 5);
+            HAL_Delay(2000);
         }
         
-        uint32_t active_cycles = DWT->CYCCNT;
-        print_power_metrics(active_cycles, 5);
-
         // Sleep for 5 seconds
+        printf("\r\n\r\n");
         printf("--- SLEEP MODE ---\r\n");
         PM_EnterSleep(5);
         printf("\r\n\r\n");
