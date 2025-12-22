@@ -110,24 +110,24 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     uint32_t max_idx;
     float res = (float)FS / size;
 
-
+    const char* algo_name = toggle_algorithm ? "KISS FFT" : "CMSIS FFT";
     if (toggle_algorithm) {
-        // KISS FFT (Baseline)
         start = DWT->CYCCNT;
         decompose_kiss(in_buffer, fft_buffer, size);
         stop = DWT->CYCCNT;
-        
-        arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-        printf("KISS FFT:  %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
     } else {
-        // CMSIS FFT (Optimized)
         start = DWT->CYCCNT;
         decompose_cmsis(in_buffer, fft_buffer, size);
         stop = DWT->CYCCNT;
-        
-        arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-        printf("CMSIS FFT: %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
     }
+
+    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
+
+    printf("INFO: FFT Statistics:\r\n");
+    printf("  Algorithm:\t\t%s\r\n", algo_name);
+    printf("  Cycles:\t\t%" PRIu32 "\r\n", stop - start);
+    printf("  Max Magnitude:\t%.2f\r\n", max_val);
+    printf("  Peak Frequency:\t%.1f Hz\r\n", max_idx * res);
 
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
