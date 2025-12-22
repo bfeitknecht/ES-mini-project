@@ -4,24 +4,122 @@
  */
 #include "machine_health.h"
 #include "arm_math.h"
+#include "kiss_fftr.h"
 #include "main.h"
 #include "power_manager.h"
 #include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <inttypes.h>
 
 #define INPUT_SIZE 100  // 1 second of data at 100Hz
+#define FS         100
 #define FFT_SIZE   128  // Power of 2 for CMSIS-DSP
 #define MAGNITUDE_THRESHOLD         1000000.0f
 
-
+/* Private variables ---------------------------------------------------------*/
+/** @brief Buffer for raw microphone samples. Static for DMA compatibility. */
 static int32_t mic_buffer[INPUT_SIZE];
-static float in_buffer[FFT_SIZE];
-static float fft_buffer[FFT_SIZE];
 
-static bool expensive_decompose = 1;
+/** @brief KISS FFT configuration state. */
+static kiss_fftr_cfg kiss_cfg = NULL;
 
+/* Private functions ---------------------------------------------------------*/
+
+/**
+ * @brief Performs Real FFT using the KISS FFT library.
+ * 
+ * @param in_buffer Input time-domain samples (float).
+ * @param fft_buffer Output buffer for magnitude spectrum.
+ * @param size FFT size.
+ */
+static void decompose_kiss(float *in_buffer, float *fft_buffer, uint32_t size) {
+    kiss_fft_cpx out_cpx[(size / 2) + 1];
+    kiss_fftr(kiss_cfg, in_buffer, out_cpx);
+
+    for (uint32_t i = 0; i < size / 2; i++) {
+        fft_buffer[i] = sqrtf(out_cpx[i].r * out_cpx[i].r + out_cpx[i].i * out_cpx[i].i);
+    }
+    fft_buffer[0] = 0; // Remove DC component
+}
+
+/**
+ * @brief Performs Real FFT using the CMSIS-DSP library.
+ * 
+ * @param in_buffer Input time-domain samples (float).
+ * @param fft_buffer Output buffer for magnitude spectrum.
+ * @param size FFT size.
+ */
+static void decompose_cmsis(float *in_buffer, float *fft_buffer, uint32_t size) {
+    static arm_rfft_fast_instance_f32 S;
+    static bool decomposition_initialized = 0;
+    if (!decomposition_initialized) {
+        arm_rfft_fast_init_f32(&S, size);
+        decomposition_initialized = 1;
+    }
+
+    arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
+    arm_cmplx_mag_f32(fft_buffer, fft_buffer, size / 2);
+    
+    fft_buffer[0] = 0; // Remove DC component
+}
+
+/**
+ * @brief Compares KISS FFT and CMSIS-DSP FFT performance and detects anomalies.
+ * 
+ * @param in_buffer Input time-domain samples (float).
+ * @param fft_buffer Output buffer for magnitude spectrum.
+ * @param size FFT size.
+ * @return true if peak magnitude exceeds threshold, false otherwise.
+ */
+static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
+    uint32_t start, stop;
+    float max_val;
+    uint32_t max_idx;
+    float res = (float)FS / size;
+
+    // 1. KISS FFT (Baseline)
+    start = DWT->CYCCNT;
+    decompose_kiss(in_buffer, fft_buffer, size);
+    stop = DWT->CYCCNT;
+    
+    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
+    printf("KISS FFT:  %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", 
+           stop - start, max_val, max_idx * res);
+
+    bool anomaly = (max_val > MAGNITUDE_THRESHOLD);
+
+    // 2. CMSIS FFT (Optimized)
+    start = DWT->CYCCNT;
+    decompose_cmsis(in_buffer, fft_buffer, size);
+    stop = DWT->CYCCNT;
+    
+    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
+    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", 
+           stop - start, max_val, max_idx * res);
+
+    return anomaly;
+}
+
+/**
+ * @brief Main task for Machine Health Indicator.
+ */
 void machine_health_task(void) {
+    static float in_buffer[FFT_SIZE];
+    static float fft_buffer[FFT_SIZE];
+
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
+
+    // Enable the DWT cycle counter:
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    // Initialize KISS FFT
+    if (kiss_cfg == NULL) {
+        kiss_cfg = kiss_fftr_alloc(FFT_SIZE, 0, NULL, NULL);
+    }
 
     while (1) {
         printf("--- ACTIVE MODE ---\r\n");
@@ -45,7 +143,7 @@ void machine_health_task(void) {
         }
         
         // Detect Anomaly
-        bool anomaly = detect_anomaly(in_buffer, FFT_SIZE);
+        bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
         if (anomaly) {
             printf("WARNING: Anomaly detected!\r\n");
             // Flash LED to indicate anomaly
@@ -54,8 +152,6 @@ void machine_health_task(void) {
                 HAL_Delay(100);
             }
             HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-        } else {
-            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
         }
         
         // Sleep for 5 seconds
@@ -65,55 +161,28 @@ void machine_health_task(void) {
     }
 }
 
-bool detect_anomaly(float *in_buffer, uint32_t size) {
-    if (expensive_decompose) {
-        printf("INFO: Running expensive manual DFT\r\n");
-        expensive_decompose_spectrum(in_buffer, size);
-    } else {
-        printf("INFO: Running efficient CMSIS-DSP FFT\r\n");
-        decompose_spectrum(in_buffer, size);
-    }
-
-    // Simple anomaly detection: Check if max magnitude exceeds threshold
-    float max_val;
-    uint32_t max_idx;
-    arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    if (max_val > MAGNITUDE_THRESHOLD) { 
-        return 1;
-    }
-
-    return 0;
+/**
+ * @brief Dumps the raw time-domain waveform to UART.
+ */
+void dump_waveform(int32_t *buf, size_t len) {
+  printf("\r\nWAVEFORM:");
+  fflush(stdout);
+  for (size_t i = 0; i < len; i++) {
+    printf("%s%" PRIi32, i == 0 ? "" : ",", buf[i]);
+    fflush(stdout);
+  }
+  printf("\r\n");
 }
 
-void decompose_spectrum(float *in_buffer, uint32_t size) {
-    // Perform FFT using CMSIS-DSP
-
-    static arm_rfft_fast_instance_f32 S;
-    static bool decomposition_initialized = 0;
-    if (!decomposition_initialized) {
-        arm_rfft_fast_init_f32(&S, size);
-        decomposition_initialized = 1;
-    }
-
-    arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
-    arm_cmplx_mag_f32(fft_buffer, fft_buffer, size / 2);
-    
-    fft_buffer[0] = 0; // Remove DC component
-}
-
-void expensive_decompose_spectrum(float *in_buffer, uint32_t size) {
-    // Manual DFT implementation: O(N^2)
-    
-    for (uint32_t k = 0; k < size / 2; k++) {
-        float real_sum = 0.0f;
-        float imag_sum = 0.0f;
-        for (uint32_t n = 0; n < size; n++) {
-            float angle = 2.0f * PI * (float)k * (float)n / (float)size;
-            real_sum += in_buffer[n] * cosf(angle);
-            imag_sum -= in_buffer[n] * sinf(angle);
-        }
-        fft_buffer[k] = sqrtf(real_sum * real_sum + imag_sum * imag_sum);
-    }
-
-    fft_buffer[0] = 0; // Remove DC component
+/**
+ * @brief Dumps the FFT magnitude spectrum to UART.
+ */
+void dump_fft_mag(float *buf, size_t len, uint32_t max_idx, uint32_t fs) {
+  printf("\r\nFFTMAG:%" PRIu32 ",%" PRIu32, max_idx, fs);
+  fflush(stdout);
+  for (size_t i = 0; i < len; i++) {
+    printf(",%f", buf[i]);
+    fflush(stdout);
+  }
+  printf("\r\n");
 }

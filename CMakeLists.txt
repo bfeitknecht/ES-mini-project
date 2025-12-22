@@ -47,6 +47,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/machine_health.c
     Core/Src/power_manager.c
+    Libs/kissfft/src/kiss_fft.c
+    Libs/kissfft/src/kiss_fftr.c
 
     # Add user sources here
 )
@@ -54,6 +56,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Libs/CMSIS_DSP
+    Libs/kissfft/inc
 
     # Add user defined include paths
 )
