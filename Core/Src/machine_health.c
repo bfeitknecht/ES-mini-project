@@ -12,10 +12,10 @@
 #include <math.h>
 #include <inttypes.h>
 
-#define INPUT_SIZE 100  // 1 second of data at 100Hz
-#define FS         100
-#define FFT_SIZE   128  // Power of 2 for CMSIS-DSP
-#define MAGNITUDE_THRESHOLD         1000000.0f
+#define INPUT_SIZE 2048 // ~125ms of data at 16.45kHz
+#define FS         16447
+#define FFT_SIZE   2048 // Power of 2 for CMSIS-DSP
+#define MAGNITUDE_THRESHOLD         20000000.0f
 
 /* Private variables ---------------------------------------------------------*/
 /** @brief Buffer for raw microphone samples. Static for DMA compatibility. */
@@ -84,10 +84,8 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     stop = DWT->CYCCNT;
     
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("KISS FFT:  %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", 
-           stop - start, max_val, max_idx * res);
+    printf("KISS FFT:  %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
-    bool anomaly = (max_val > MAGNITUDE_THRESHOLD);
 
     // 2. CMSIS FFT (Optimized)
     start = DWT->CYCCNT;
@@ -95,14 +93,14 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     stop = DWT->CYCCNT;
     
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", 
-           stop - start, max_val, max_idx * res);
+    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
+    bool anomaly = (max_val > MAGNITUDE_THRESHOLD);
     return anomaly;
 }
 
 /**
- * @brief Main task for Machine Health Indicator.
+ * @brief Main task for Machine Health Detection.
  */
 void machine_health_task(void) {
     static float in_buffer[FFT_SIZE];
@@ -110,6 +108,8 @@ void machine_health_task(void) {
 
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
+    printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", 
+           FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
 
     // Enable the DWT cycle counter:
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -157,7 +157,7 @@ void machine_health_task(void) {
         // Sleep for 5 seconds
         printf("--- SLEEP MODE ---\r\n");
         PM_EnterSleep(5);
-        printf("\r\n");
+        printf("\r\n\r\n");
     }
 }
 
