@@ -95,6 +95,9 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
     printf("CMSIS FFT: %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
+    // Dump frequency spectrum to UART
+    dump_frequency_spectrum(fft_buffer, size / 2, max_idx, FS);
+
     bool anomaly = (max_val > MAGNITUDE_THRESHOLD);
     return anomaly;
 }
@@ -108,8 +111,7 @@ void machine_health_task(void) {
 
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
-    printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", 
-           FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
+    printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
 
     // Enable the DWT cycle counter:
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -135,6 +137,9 @@ void machine_health_task(void) {
             printf("ERROR: Failed to stop DFSDM!\r\n");
             Error_Handler();
         }
+
+        // Dump raw waveform to UART
+        dump_time_waveform(mic_buffer, INPUT_SIZE);
         
         // Pre-process: Convert to float and zero-pad for FFT
         memset(in_buffer, 0, sizeof(in_buffer));
@@ -164,7 +169,7 @@ void machine_health_task(void) {
 /**
  * @brief Dumps the raw time-domain waveform to UART.
  */
-void dump_waveform(int32_t *buf, size_t len) {
+void dump_time_waveform(int32_t *buf, size_t len) {
   printf("\r\nWAVEFORM:");
   fflush(stdout);
   for (size_t i = 0; i < len; i++) {
@@ -175,10 +180,10 @@ void dump_waveform(int32_t *buf, size_t len) {
 }
 
 /**
- * @brief Dumps the FFT magnitude spectrum to UART.
+ * @brief Dumps the frequency-domain FFT magnitude spectrum to UART.
  */
-void dump_fft_mag(float *buf, size_t len, uint32_t max_idx, uint32_t fs) {
-  printf("\r\nFFTMAG:%" PRIu32 ",%" PRIu32, max_idx, fs);
+void dump_frequency_spectrum(float *buf, size_t len, uint32_t max_idx, uint32_t fs) {
+  printf("\r\nFFT:%" PRIu32 ",%" PRIu32, max_idx, fs);
   fflush(stdout);
   for (size_t i = 0; i < len; i++) {
     printf(",%f", buf[i]);
