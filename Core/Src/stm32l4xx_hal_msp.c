@@ -169,6 +169,7 @@ void HAL_DFSDM_FilterMspInit(DFSDM_Filter_HandleTypeDef* hdfsdm_filter)
   */
 void HAL_DFSDM_ChannelMspInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
 {
+  (void)hdfsdm_channel;
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
   if(DFSDM1_Init == 0)
@@ -254,6 +255,7 @@ void HAL_DFSDM_FilterMspDeInit(DFSDM_Filter_HandleTypeDef* hdfsdm_filter)
   */
 void HAL_DFSDM_ChannelMspDeInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
 {
+  (void)hdfsdm_channel;
   DFSDM1_Init-- ;
   if(DFSDM1_Init == 0)
     {

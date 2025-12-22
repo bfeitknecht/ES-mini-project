@@ -24,7 +24,7 @@ void PM_EnterSleep(uint32_t seconds) {
     }
 
     // Enter Sleep Mode
-    printf("INFO: sleep for %lu seconds\r\n", seconds);
+    printf("INFO: Sleep for %lu seconds\r\n", seconds);
     HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
     printf("INFO: woke up!\r\n");
 

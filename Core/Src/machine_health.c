@@ -72,13 +72,13 @@ static void decompose_cmsis(float *in_buffer, float *fft_buffer, uint32_t size) 
 
 /**
  * @brief Calculates the total energy in a specific frequency band.
- * @param fft_buf Pointer to the frequency spectrum (magnitudes).
+ * @param fft_buffer Pointer to the frequency spectrum (magnitudes).
  * @param start_hz Start frequency of the band in Hz.
  * @param end_hz End frequency of the band in Hz.
  * @param size FFT size.
  * @retval Total energy in the band.
  */
-static float calculate_band_energy(float *fft_buf, uint32_t start_hz, uint32_t end_hz, uint32_t size) {
+static float calculate_band_energy(float *fft_buffer, uint32_t start_hz, uint32_t end_hz, uint32_t size) {
     uint32_t start_bin = (start_hz * size) / FS;
     uint32_t end_bin = (end_hz * size) / FS;
 
@@ -89,7 +89,7 @@ static float calculate_band_energy(float *fft_buf, uint32_t start_hz, uint32_t e
     float energy = 0.0f;
     for (uint32_t i = start_bin; i <= end_bin; i++) {
         // Energy is the sum of squares of magnitudes
-        energy += fft_buf[i] * fft_buf[i];
+        energy += fft_buffer[i] * fft_buffer[i];
     }
     return energy;
 }
@@ -114,7 +114,7 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     stop = DWT->CYCCNT;
     
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("KISS FFT:  %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
+    printf("KISS FFT:  %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
 
     // CMSIS FFT (Optimized)
@@ -123,10 +123,10 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     stop = DWT->CYCCNT;
     
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
-    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
+    printf("CMSIS FFT: %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
     // Dump frequency spectrum to UART
-    dump_frequency_spectrum(fft_buffer, size / 2, max_idx, FS);
+    // dump_frequency_spectrum(fft_buffer, size / 2, max_idx, FS);
 
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
@@ -178,7 +178,7 @@ void machine_health_task(void) {
         }
 
         // Dump raw waveform to UART
-        dump_time_waveform(mic_buffer, INPUT_SIZE);
+        // dump_time_waveform(mic_buffer, INPUT_SIZE);
         
         // Pre-process: Convert to float and zero-pad for FFT
         memset(in_buffer, 0, sizeof(in_buffer));
@@ -205,28 +205,3 @@ void machine_health_task(void) {
     }
 }
 
-/**
- * @brief Dumps the raw time-domain waveform to UART.
- */
-void dump_time_waveform(int32_t *buf, size_t len) {
-  printf("\r\nWAVEFORM:");
-  fflush(stdout);
-  for (size_t i = 0; i < len; i++) {
-    printf("%s%" PRIi32, i == 0 ? "" : ",", buf[i]);
-    fflush(stdout);
-  }
-  printf("\r\n");
-}
-
-/**
- * @brief Dumps the frequency-domain FFT magnitude spectrum to UART.
- */
-void dump_frequency_spectrum(float *buf, size_t len, uint32_t max_idx, uint32_t fs) {
-  printf("\r\nFFT:%" PRIu32 ",%" PRIu32, max_idx, fs);
-  fflush(stdout);
-  for (size_t i = 0; i < len; i++) {
-    printf(",%f", buf[i]);
-    fflush(stdout);
-  }
-  printf("\r\n");
-}
