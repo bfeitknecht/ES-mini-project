@@ -30,6 +30,27 @@ static int32_t mic_buffer[INPUT_SIZE];
 /** @brief KISS FFT configuration state. */
 static kiss_fftr_cfg kiss_cfg = NULL;
 
+/** @brief System clock frequency in Hz. */
+static uint32_t cpu_freq;
+
+extern RTC_HandleTypeDef hrtc;
+
+/**
+ * @brief Gets the current time from the RTC in milliseconds.
+ * @return Time in ms since some epoch (e.g. midnight).
+ */
+static uint32_t get_rtc_ms(void) {
+    RTC_TimeTypeDef sTime;
+    RTC_DateTypeDef sDate;
+    HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+    
+    uint32_t ms = (sTime.Hours * 3600 + sTime.Minutes * 60 + sTime.Seconds) * 1000;
+    // Subseconds are counting down from SynchPrediv to 0
+    uint32_t sub_ms = ((hrtc.Init.SynchPrediv - sTime.SubSeconds) * 1000) / (hrtc.Init.SynchPrediv + 1);
+    return ms + sub_ms;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -40,7 +61,7 @@ static kiss_fftr_cfg kiss_cfg = NULL;
  * @param size FFT size.
  */
 static void decompose_kiss(float *in_buffer, float *fft_buffer, uint32_t size) {
-    kiss_fft_cpx out_cpx[(size / 2) + 1];
+    static kiss_fft_cpx out_cpx[FFT_SIZE / 2 + 1];
     kiss_fftr(kiss_cfg, in_buffer, out_cpx);
 
     for (uint32_t i = 0; i < size / 2; i++) {
@@ -132,12 +153,17 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
     float problem_energy = calculate_band_energy(fft_buffer, PROBLEM_BAND_START_HZ, PROBLEM_BAND_END_HZ, size);
+    
+    // Protect against inf/nan
+    if (isinf(normal_energy) || isnan(normal_energy)) normal_energy = 1e30f;
+    if (isinf(problem_energy) || isnan(problem_energy)) problem_energy = 1e30f;
+
     float ratio = problem_energy / (normal_energy + 1e-6f);
     
     printf("INFO: Detection Metrics:\r\n");
-    printf("  Normal Band Energy (0-500Hz):\t%.2e\r\n", normal_energy);
+    printf("  Normal Band Energy (0-500Hz):\t\t%.2e\r\n", normal_energy);
     printf("  Problem Band Energy (1k-8kHz):\t%.2e\r\n", problem_energy);
-    printf("  Energy Ratio (P/N):\t%.4f (Threshold: %.2f)\r\n", ratio, ANOMALY_RATIO_THRESHOLD);
+    printf("  Energy Ratio (P/N):\t\t\t%.4f\r\n", ratio);
 
     return (ratio > ANOMALY_RATIO_THRESHOLD);
 }
@@ -190,27 +216,31 @@ void signal_error(void) {
  * @brief Computes and prints estimated energy and power usage.
  * 
  * @param active_cycles Number of CPU cycles spent in active mode.
- * @param sleep_seconds Number of seconds spent in sleep mode.
+ * @param avg_active_cycles Average number of CPU cycles spent in active mode.
+ * @param sleep_time_ms Time spent in sleep mode in milliseconds.
  */
-static void print_power_metrics(uint32_t active_cycles, uint32_t sleep_seconds) {
+static void print_power_metrics(uint32_t active_cycles, uint32_t avg_active_cycles, uint32_t sleep_time_ms) {
     const float vdd = 3.3f;        // Volts
     const float i_run = 8.4e-3f;   // Amps (8.4 mA)
     const float i_sleep = 2.3e-3f; // Amps (2.3 mA)
-    const uint32_t f_cpu = 80000000;
 
-    float t_active = (float)active_cycles / f_cpu;
-    float t_sleep = (float)sleep_seconds;
-    float t_total = t_active + t_sleep;
+    float t_active = (float)active_cycles / (float)cpu_freq;
+    float t_avg_active = (float)avg_active_cycles / (float)cpu_freq;
+    float t_sleep = (float)sleep_time_ms / 1000.0f;
+    float t_total = t_avg_active + t_sleep;
 
-    float e_active = vdd * i_run * t_active;
+    float e_active = vdd * i_run * t_avg_active;
     float e_sleep = vdd * i_sleep * t_sleep;
     float e_total = e_active + e_sleep;
 
     float p_avg = e_total / t_total;
 
     printf("INFO: Power Metrics\r\n");
+    printf("  Active Cycles:\t%10" PRIu32 "\r\n", active_cycles);
+    printf("  Avg Active Cycles:\t%10" PRIu32 "\r\n", avg_active_cycles);
     printf("  Active Time:\t\t%10.3f ms\r\n", t_active * 1000.0f);
-    printf("  Sleep Time:\t\t%10.3f s\r\n", t_sleep);
+    printf("  Avg Active Time:\t%10.3f ms\r\n", t_avg_active * 1000.0f);
+    printf("  Sleep Time:\t\t%10.3f ms\r\n", (float)sleep_time_ms);
     printf("  Energy/Cycle:\t\t%10.3f mJ\r\n", e_total * 1000.0f);
     printf("  Avg Power:\t\t%10.3f mW\r\n", p_avg * 1000.0f);
 }
@@ -221,13 +251,18 @@ static void print_power_metrics(uint32_t active_cycles, uint32_t sleep_seconds) 
 void machine_health_task(void) {
     static float in_buffer[FFT_SIZE];
     static float fft_buffer[FFT_SIZE];
+    static uint64_t total_active_cycles_kiss = 0;
+    static uint32_t iteration_count_kiss = 0;
+    static uint64_t total_active_cycles_cmsis = 0;
+    static uint32_t iteration_count_cmsis = 0;
+    static uint32_t last_sleep_ms = 5000;
 
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
     printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
     
-    uint32_t sysclk = HAL_RCC_GetSysClockFreq();
-    printf("System Clock Frequency: %" PRIu32 " Hz\r\n", sysclk);
+    cpu_freq = HAL_RCC_GetSysClockFreq();
+    printf("System Clock Frequency: %" PRIu32 " Hz\r\n", cpu_freq);
     
     // Enable the DWT cycle counter:
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -255,32 +290,50 @@ void machine_health_task(void) {
             Error_Handler();
         }
         
-        // Pre-process: Convert to float and zero-pad for FFT
+        // Pre-process: Convert to float and normalize to [-1, 1]
+        // DFSDM gain with Sinc4, 38x oversampling, 4x int oversampling is ~8.3e6
+        const float normalization_factor = 1.0f / 8388608.0f; 
         memset(in_buffer, 0, sizeof(in_buffer));
         for (int i = 0; i < INPUT_SIZE; i++) {
-            in_buffer[i] = (float)mic_buffer[i];
+            in_buffer[i] = (float)mic_buffer[i] * normalization_factor;
         }
         
         // Detect Anomaly
         toggle_algorithm = !toggle_algorithm;
-        for (int i = 0; i < 10; i++) {
-            bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
-            if (anomaly) {
-                printf("WARNING: Anomaly detected!\r\n");
-                signal_error();
-            } else {
-                signal_normal();
-            }
-            
-            uint32_t active_cycles = DWT->CYCCNT;
-            print_power_metrics(active_cycles, 5);
-            HAL_Delay(2000);
+        bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
+        if (anomaly) {
+            printf("WARNING: Anomaly detected!\r\n");
+            signal_error();
+        } else {
+            signal_normal();
         }
         
+        uint32_t active_cycles = DWT->CYCCNT;
+        uint32_t avg_active_cycles;
+
+        if (toggle_algorithm) { // KISS FFT
+            total_active_cycles_kiss += active_cycles;
+            iteration_count_kiss++;
+            avg_active_cycles = (uint32_t)(total_active_cycles_kiss / iteration_count_kiss);
+        } else { // CMSIS FFT
+            total_active_cycles_cmsis += active_cycles;
+            iteration_count_cmsis++;
+            avg_active_cycles = (uint32_t)(total_active_cycles_cmsis / iteration_count_cmsis);
+        }
+
+        print_power_metrics(active_cycles, avg_active_cycles, last_sleep_ms);
+
         // Sleep for 5 seconds
-        printf("\r\n\r\n");
         printf("--- SLEEP MODE ---\r\n");
+        uint32_t t1 = get_rtc_ms();
         PM_EnterSleep(5);
+        uint32_t t2 = get_rtc_ms();
+        
+        if (t2 >= t1) {
+            last_sleep_ms = t2 - t1;
+        } else {
+            last_sleep_ms = (86400000 - t1) + t2;
+        }
         printf("\r\n\r\n");
     }
 }
