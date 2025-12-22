@@ -15,7 +15,13 @@
 #define INPUT_SIZE 2048 // ~125ms of data at 16.45kHz
 #define FS         16447
 #define FFT_SIZE   2048 // Power of 2 for CMSIS-DSP
-#define MAGNITUDE_THRESHOLD         20000000.0f
+
+// Anomaly Detection Strategy: Band Energy Ratio
+#define NORMAL_BAND_START_HZ  0
+#define NORMAL_BAND_END_HZ    500
+#define PROBLEM_BAND_START_HZ 1000
+#define PROBLEM_BAND_END_HZ   8000
+#define ANOMALY_RATIO_THRESHOLD 0.5f
 
 /* Private variables ---------------------------------------------------------*/
 /** @brief Buffer for raw microphone samples. Static for DMA compatibility. */
@@ -65,12 +71,36 @@ static void decompose_cmsis(float *in_buffer, float *fft_buffer, uint32_t size) 
 }
 
 /**
+ * @brief Calculates the total energy in a specific frequency band.
+ * @param fft_buf Pointer to the frequency spectrum (magnitudes).
+ * @param start_hz Start frequency of the band in Hz.
+ * @param end_hz End frequency of the band in Hz.
+ * @param size FFT size.
+ * @retval Total energy in the band.
+ */
+static float calculate_band_energy(float *fft_buf, uint32_t start_hz, uint32_t end_hz, uint32_t size) {
+    uint32_t start_bin = (start_hz * size) / FS;
+    uint32_t end_bin = (end_hz * size) / FS;
+
+    if (end_bin >= size / 2) {
+        end_bin = (size / 2) - 1;
+    }
+
+    float energy = 0.0f;
+    for (uint32_t i = start_bin; i <= end_bin; i++) {
+        // Energy is the sum of squares of magnitudes
+        energy += fft_buf[i] * fft_buf[i];
+    }
+    return energy;
+}
+
+/**
  * @brief Compares KISS FFT and CMSIS-DSP FFT performance and detects anomalies.
  * 
  * @param in_buffer Input time-domain samples (float).
  * @param fft_buffer Output buffer for magnitude spectrum.
  * @param size FFT size.
- * @return true if peak magnitude exceeds threshold, false otherwise.
+ * @return true if energy ratio exceeds threshold, false otherwise.
  */
 static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     uint32_t start, stop;
@@ -78,7 +108,7 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     uint32_t max_idx;
     float res = (float)FS / size;
 
-    // 1. KISS FFT (Baseline)
+    // KISS FFT (Baseline)
     start = DWT->CYCCNT;
     decompose_kiss(in_buffer, fft_buffer, size);
     stop = DWT->CYCCNT;
@@ -87,7 +117,7 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     printf("KISS FFT:  %10" PRIu32 " cycles, Max Mag: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
 
-    // 2. CMSIS FFT (Optimized)
+    // CMSIS FFT (Optimized)
     start = DWT->CYCCNT;
     decompose_cmsis(in_buffer, fft_buffer, size);
     stop = DWT->CYCCNT;
@@ -98,8 +128,17 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     // Dump frequency spectrum to UART
     dump_frequency_spectrum(fft_buffer, size / 2, max_idx, FS);
 
-    bool anomaly = (max_val > MAGNITUDE_THRESHOLD);
-    return anomaly;
+    // Anomaly Detection Logic: Energy Ratio
+    float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
+    float problem_energy = calculate_band_energy(fft_buffer, PROBLEM_BAND_START_HZ, PROBLEM_BAND_END_HZ, size);
+    float ratio = problem_energy / (normal_energy + 1e-6f);
+    
+    printf("INFO: Detection Metrics:\r\n");
+    printf("  Normal Band Energy (0-500Hz):   %.2e\r\n", normal_energy);
+    printf("  Problem Band Energy (1k-8kHz):  %.2e\r\n", problem_energy);
+    printf("  Energy Ratio (P/N):             %.4f (Threshold: %.2f)\r\n", ratio, ANOMALY_RATIO_THRESHOLD);
+
+    return (ratio > ANOMALY_RATIO_THRESHOLD);
 }
 
 /**
