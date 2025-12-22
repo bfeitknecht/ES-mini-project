@@ -169,7 +169,6 @@ void HAL_DFSDM_FilterMspInit(DFSDM_Filter_HandleTypeDef* hdfsdm_filter)
   */
 void HAL_DFSDM_ChannelMspInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
 {
-  (void)hdfsdm_channel;
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
   if(DFSDM1_Init == 0)
@@ -255,7 +254,6 @@ void HAL_DFSDM_FilterMspDeInit(DFSDM_Filter_HandleTypeDef* hdfsdm_filter)
   */
 void HAL_DFSDM_ChannelMspDeInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
 {
-  (void)hdfsdm_channel;
   DFSDM1_Init-- ;
   if(DFSDM1_Init == 0)
     {
@@ -336,6 +334,82 @@ void HAL_RTC_MspDeInit(RTC_HandleTypeDef* hrtc)
     /* USER CODE BEGIN RTC_MspDeInit 1 */
 
     /* USER CODE END RTC_MspDeInit 1 */
+  }
+
+}
+
+/**
+  * @brief SPI MSP Initialization
+  * This function configures the hardware resources used in this example
+  * @param hspi: SPI handle pointer
+  * @retval None
+  */
+void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  if(hspi->Instance==SPI2)
+  {
+    /* USER CODE BEGIN SPI2_MspInit 0 */
+
+    /* USER CODE END SPI2_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_SPI2_CLK_ENABLE();
+
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    /**SPI2 GPIO Configuration
+    PC3     ------> SPI2_MOSI
+    PB13     ------> SPI2_SCK
+    */
+    GPIO_InitStruct.Pin = MATRIX_PICO_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(MATRIX_PICO_GPIO_Port, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = MATRIX_SCK_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(MATRIX_SCK_GPIO_Port, &GPIO_InitStruct);
+
+    /* USER CODE BEGIN SPI2_MspInit 1 */
+
+    /* USER CODE END SPI2_MspInit 1 */
+
+  }
+
+}
+
+/**
+  * @brief SPI MSP De-Initialization
+  * This function freeze the hardware resources used in this example
+  * @param hspi: SPI handle pointer
+  * @retval None
+  */
+void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
+{
+  if(hspi->Instance==SPI2)
+  {
+    /* USER CODE BEGIN SPI2_MspDeInit 0 */
+
+    /* USER CODE END SPI2_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_SPI2_CLK_DISABLE();
+
+    /**SPI2 GPIO Configuration
+    PC3     ------> SPI2_MOSI
+    PB13     ------> SPI2_SCK
+    */
+    HAL_GPIO_DeInit(MATRIX_PICO_GPIO_Port, MATRIX_PICO_Pin);
+
+    HAL_GPIO_DeInit(MATRIX_SCK_GPIO_Port, MATRIX_SCK_Pin);
+
+    /* USER CODE BEGIN SPI2_MspDeInit 1 */
+
+    /* USER CODE END SPI2_MspDeInit 1 */
   }
 
 }

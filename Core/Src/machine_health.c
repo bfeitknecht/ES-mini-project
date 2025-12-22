@@ -125,9 +125,6 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     arm_max_f32(fft_buffer, size / 2, &max_val, &max_idx);
     printf("CMSIS FFT: %10" PRIu32 " cycles, Max Magnitude: %10.2f at %4.1f Hz\r\n", stop - start, max_val, max_idx * res);
 
-    // Dump frequency spectrum to UART
-    // dump_frequency_spectrum(fft_buffer, size / 2, max_idx, FS);
-
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
     float problem_energy = calculate_band_energy(fft_buffer, PROBLEM_BAND_START_HZ, PROBLEM_BAND_END_HZ, size);
@@ -140,6 +137,51 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
 
     return (ratio > ANOMALY_RATIO_THRESHOLD);
 }
+
+void reset_led_matrix(void) {
+  HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
+  uint8_t buf[] = {
+      0x00,
+      0x00,
+      0x00,
+  };
+  HAL_SPI_Transmit(&hspi2, buf, 3, 300);
+  HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_SET);
+  HAL_Delay(1);
+  HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
+}
+
+void signal_normal() {
+    reset_led_matrix();
+    uint8_t buf[] = {
+        0x00,
+        0x0f,
+        0xff,
+    };
+
+    HAL_SPI_Transmit(&hspi2, buf, 3, 300);
+    HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_SET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
+    HAL_Delay(15);
+    reset_led_matrix();
+}
+
+void signal_error() {
+    reset_led_matrix();
+
+    uint8_t buf[] = {
+        0xff,
+        0xf0,
+        0x00,
+    };
+
+    HAL_SPI_Transmit(&hspi2, buf, 3, 300);  
+    HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_SET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
+}
+
 
 /**
  * @brief Main task for Machine Health Detection.
@@ -176,9 +218,6 @@ void machine_health_task(void) {
             printf("ERROR: Failed to stop DFSDM!\r\n");
             Error_Handler();
         }
-
-        // Dump raw waveform to UART
-        // dump_time_waveform(mic_buffer, INPUT_SIZE);
         
         // Pre-process: Convert to float and zero-pad for FFT
         memset(in_buffer, 0, sizeof(in_buffer));
@@ -190,14 +229,12 @@ void machine_health_task(void) {
         bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
         if (anomaly) {
             printf("WARNING: Anomaly detected!\r\n");
-            // Flash LED to indicate anomaly
-            for (int i = 0; i < 10; i++) {
-                HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-                HAL_Delay(100);
-            }
-            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+            signal_error();
+        } else {
+            signal_normal();
         }
         
+        printf("\r\n");
         // Sleep for 5 seconds
         printf("--- SLEEP MODE ---\r\n");
         PM_EnterSleep(5);

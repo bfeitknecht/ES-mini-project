@@ -46,6 +46,7 @@ extern DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 extern DFSDM_Channel_HandleTypeDef hdfsdm1_channel3;
 extern DMA_HandleTypeDef hdma_dfsdm1_flt0;
 extern RTC_HandleTypeDef hrtc;
+extern SPI_HandleTypeDef hspi2;
 extern volatile bool mic_dma_finished;
 /* USER CODE END EC */
 
@@ -62,8 +63,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED_Pin GPIO_PIN_5
-#define LED_GPIO_Port GPIOA
+#define MATRIX_PICO_Pin GPIO_PIN_3
+#define MATRIX_PICO_GPIO_Port GPIOC
+#define MATRIX_RCK_Pin GPIO_PIN_11
+#define MATRIX_RCK_GPIO_Port GPIOB
+#define MATRIX_SCK_Pin GPIO_PIN_13
+#define MATRIX_SCK_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
