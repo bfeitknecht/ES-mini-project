@@ -3,7 +3,7 @@
 
 This file contains concise, actionable guidance for AI coding agents working on this STM32-based DSP exercise repository.
 
-- **Project purpose:** : Machine Health Indicator using STM32L4 HAL. The code acquires microphone samples via DFSDM+DMA, computes RFFT (CMSIS DSP), and detects anomalies in machine noise patterns. Results are printed on UART2. Main application logic is in [Core/Src/machine_health.c](Core/Src/machine_health.c).
+- **Project purpose:** : Machine Health Indicator using STM32L4 HAL. The code acquires microphone samples via DFSDM+DMA, computes RFFT (comparing CMSIS-DSP and KISS FFT), and detects anomalies in machine noise patterns using a band energy ratio strategy. Results and power metrics are printed on UART2. Main application logic is in [Core/Src/machine_health.c](Core/Src/machine_health.c).
 
 - **Build system / toolchain:** : Uses CMake + Ninja with an ARM cross toolchain. See [CMakeLists.txt](CMakeLists.txt) and toolchain helpers in [cmake/gcc-arm-none-eabi.cmake](cmake/gcc-arm-none-eabi.cmake). Use the CMake presets in `CMakePresets.json` for standard invocations.
 
@@ -18,10 +18,11 @@ This file contains concise, actionable guidance for AI coding agents working on 
 
   - Application entry and peripheral init: [Core/Src/main.c](Core/Src/main.c)
   - Machine Health logic: [Core/Src/machine_health.c](Core/Src/machine_health.c) and [Core/Inc/machine_health.h](Core/Inc/machine_health.h)
+  - Power Management: [Core/Src/power_manager.c](Core/Src/power_manager.c) and [Core/Inc/power_manager.h](Core/Inc/power_manager.h)
   - HAL/CMSIS drivers: [Drivers/STM32L4xx_HAL_Driver](Drivers/STM32L4xx_HAL_Driver)
-  - Third-party DSP libs: [Libs/CMSIS_DSP](Libs/CMSIS_DSP)
+  - Third-party DSP libs: [Libs/CMSIS_DSP](Libs/CMSIS_DSP) and [Libs/kissfft](Libs/kissfft)
 
-- **Runtime / debug patterns:** : `printf` is used to emit results via UART2 — check `Core/Src/main.c` and `syscalls.c` for retargeting. The system performs periodic checks with a 5-second sleep interval using `HAL_PWR_EnterSLEEPMode`.
+- **Runtime / debug patterns:** : `printf` is used to emit results via UART2 — check `Core/Src/main.c` and `syscalls.c` for retargeting. The system performs periodic checks with a 5-second sleep interval using `PM_EnterSleep` (which uses `HAL_PWR_EnterSLEEPMode`).
 
 - **Concurrency / callbacks:** : DMA + DFSDM are used to acquire mic samples. The HAL callback `HAL_DFSDM_FilterRegConvCpltCallback` sets a `volatile bool` flag (`mic_dma_finished` in `main.c`) that the main task polls. Use/maintain this pattern when changing acquisition logic.
 
@@ -30,8 +31,8 @@ This file contains concise, actionable guidance for AI coding agents working on 
   - Keep hardware init code in generated `MX_*` functions; place algorithmic code in `Core/Src/machine_health.c`.
   - Prefer adding helpers in `Core/Inc` and include headers from existing modules.
   - Use fixed-size buffers defined close to their use (see `INPUT_SIZE` in `machine_health.c`). Be mindful of stack vs. static allocation on embedded targets.
-  - Anomaly detection is handled by `detect_anomaly`, which conditionally calls `decompose_spectrum` (CMSIS-DSP) or `expensive_decompose_spectrum` (manual DFT) based on a switch flag.
-  - Sample rate is configured for 100Hz with a 100-sample buffer (1s) to allow for performance comparison of $O(N^2)$ algorithms.
+  - Anomaly detection is handled by `detect_anomaly`, which toggles between `decompose_cmsis` (CMSIS-DSP) and `decompose_kiss` (KISS FFT) for performance comparison.
+  - Sample rate is configured for ~16.45 kHz with a 2048-sample buffer (~125ms) to allow for realistic audio analysis.
   - Use `bool` for flags and status variables where appropriate.
 
 - **Tests / verification:** : No unit tests provided. Verify changes on hardware (UART output) or by adding host-side small test harnesses that simulate input buffers.

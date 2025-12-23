@@ -15,35 +15,37 @@ The application follows a periodic monitoring cycle:
 
 ### 1. Data Acquisition (DFSDM + DMA)
 The system uses the **Digital Filter for Sigma Delta Modulators (DFSDM)** peripheral to interface with a digital microphone (acting as a vibration sensor).
-- **DFSDM Configuration**: Configured with a Sinc4 filter and an oversampling ratio to achieve a sampling frequency ($f_s$) of **100 Hz**.
+- **DFSDM Configuration**: Configured with a Sinc4 filter and an oversampling ratio to achieve a sampling frequency ($f_s$) of **16.45 kHz**.
 - **DMA**: Direct Memory Access is used to transfer samples from the DFSDM filter to a buffer in RAM without CPU intervention.
 - **Synchronization**: The application polls a `volatile bool` flag (`mic_dma_finished`) which is set in the `HAL_DFSDM_FilterRegConvCpltCallback` when the buffer is full.
 
 ### 2. Signal Processing
-Once a buffer of **100 samples** is collected (representing **1 second** of data), the system performs frequency analysis.
+Once a buffer of **2048 samples** is collected (representing **~125 ms** of data), the system performs frequency analysis.
 - **Top-level Entry**: `detect_anomaly` acts as the main entry point.
-- **Conditional Processing**: Based on a internal flag, it calls either:
-    - `decompose_spectrum`: Uses the optimized **ARM CMSIS-DSP RFFT** library (zero-padded to 128).
-    - `expensive_decompose_spectrum`: Uses a manual **O(N^2) DFT** implementation for performance comparison.
-- **Magnitude Calculation**: The complex FFT/DFT output is converted to a magnitude spectrum.
+- **Algorithm Comparison**: The system toggles between two FFT implementations for performance benchmarking:
+    - `decompose_cmsis`: Uses the optimized **ARM CMSIS-DSP RFFT** library.
+    - `decompose_kiss`: Uses the **KISS FFT** library.
+- **Magnitude Calculation**: The complex FFT output is converted to a magnitude spectrum.
 - **DC Removal**: The 0Hz component is cleared to remove any DC offset.
 
 ### 3. Anomaly Detection
-The `detect_anomaly` function in [Core/Src/machine_health.c](Core/Src/machine_health.c) implements a threshold-based logic:
-- It finds the maximum magnitude in the frequency spectrum.
-- If the maximum exceeds a predefined threshold, an anomaly is flagged.
-- *Note: This is a placeholder for more sophisticated algorithms.*
+The `detect_anomaly` function in [Core/Src/machine_health.c](Core/Src/machine_health.c) implements a **Band Energy Ratio** strategy:
+- It calculates the energy in a **Normal Band** (0-500 Hz) and a **Problem Band** (1-8 kHz).
+- An anomaly is flagged if the ratio of Problem Band energy to Normal Band energy exceeds a threshold (0.5).
+- It also tracks and prints the peak frequency and maximum magnitude.
 
 ### 4. User Interface & Feedback
-- **UART Console**: Status messages ("NORMAL" or "ANOMALY DETECTED") and system logs are printed to UART2 (115200 baud).
-- **LED Indication**: The on-board LED (LD2/PA5) flashes rapidly when an anomaly is detected and remains on until the next cycle.
+- **UART Console**: Detailed statistics including FFT cycles, peak frequency, and power metrics are printed to UART2 (115200 baud).
+- **LED Matrix**: An 8x8 LED matrix (interfaced via SPI2) provides visual feedback:
+    - **Normal**: Brief green flash.
+    - **Anomaly**: Persistent red indication.
 
 ### 5. Power Management
 To maximize energy efficiency, the system uses a dedicated power management module ([Core/Src/power_manager.c](Core/Src/power_manager.c)):
 - **Uninterrupted Sleep**: Instead of waking up every 1ms via SysTick, the system suspends the SysTick interrupt (`HAL_SuspendTick()`) before entering sleep.
-- **RTC Wakeup**: The **Real-Time Clock (RTC)** Wakeup Timer is used to fire an interrupt after the desired sleep duration (e.g., 5 seconds).
+- **RTC Wakeup**: The **Real-Time Clock (RTC)** Wakeup Timer is used to fire an interrupt after the desired sleep duration (5 seconds).
+- **Power Metrics**: The system estimates energy consumption and average power based on CPU cycles spent in active vs. sleep modes.
 - **Wakeup Source**: The CPU enters Sleep Mode via `HAL_PWR_EnterSLEEPMode` and remains in a low-power state until the RTC Wakeup interrupt occurs.
-- **Restoration**: Upon wakeup, the RTC Wakeup Timer is deactivated, and SysTick is resumed (`HAL_ResumeTick()`).
 
 ## Build and Run
 
