@@ -79,10 +79,10 @@ static void decompose_kiss(float *in_buffer, float *fft_buffer, uint32_t size) {
  */
 static void decompose_cmsis(float *in_buffer, float *fft_buffer, uint32_t size) {
     static arm_rfft_fast_instance_f32 S;
-    static bool decomposition_initialized = 0;
-    if (!decomposition_initialized) {
+    static bool cmsis_initialized = 0;
+    if (!cmsis_initialized) {
         arm_rfft_fast_init_f32(&S, size);
-        decomposition_initialized = 1;
+        cmsis_initialized = 1;
     }
 
     arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
