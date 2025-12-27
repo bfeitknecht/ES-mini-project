@@ -44,7 +44,7 @@ static uint32_t get_rtc_ms(void) {
     RTC_DateTypeDef sDate;
     HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
     HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-    
+
     uint32_t ms = (sTime.Hours * 3600 + sTime.Minutes * 60 + sTime.Seconds) * 1000;
     // Subseconds are counting down from SynchPrediv to 0
     uint32_t sub_ms = ((hrtc.Init.SynchPrediv - sTime.SubSeconds) * 1000) / (hrtc.Init.SynchPrediv + 1);
@@ -55,7 +55,7 @@ static uint32_t get_rtc_ms(void) {
 
 /**
  * @brief Performs Real FFT using the KISS FFT library.
- * 
+ *
  * @param in_buffer Input time-domain samples (float).
  * @param fft_buffer Output buffer for magnitude spectrum.
  * @param size FFT size.
@@ -72,7 +72,7 @@ static void decompose_kiss(float *in_buffer, float *fft_buffer, uint32_t size) {
 
 /**
  * @brief Performs Real FFT using the CMSIS-DSP library.
- * 
+ *
  * @param in_buffer Input time-domain samples (float).
  * @param fft_buffer Output buffer for magnitude spectrum.
  * @param size FFT size.
@@ -87,7 +87,7 @@ static void decompose_cmsis(float *in_buffer, float *fft_buffer, uint32_t size) 
 
     arm_rfft_fast_f32(&S, in_buffer, fft_buffer, 0);
     arm_cmplx_mag_f32(fft_buffer, fft_buffer, size / 2);
-    
+
     fft_buffer[0] = 0; // Remove DC component
 }
 
@@ -119,7 +119,7 @@ int toggle_algorithm = 0; // 0: CMSIS, 1: KISS
 
 /**
  * @brief Compares KISS FFT and CMSIS-DSP FFT performance and detects anomalies.
- * 
+ *
  * @param in_buffer Input time-domain samples (float).
  * @param fft_buffer Output buffer for magnitude spectrum.
  * @param size FFT size.
@@ -153,13 +153,13 @@ static bool detect_anomaly(float *in_buffer, float *fft_buffer, uint32_t size) {
     // Anomaly Detection Logic: Energy Ratio
     float normal_energy = calculate_band_energy(fft_buffer, NORMAL_BAND_START_HZ, NORMAL_BAND_END_HZ, size);
     float problem_energy = calculate_band_energy(fft_buffer, PROBLEM_BAND_START_HZ, PROBLEM_BAND_END_HZ, size);
-    
+
     // Protect against inf/nan
     if (isinf(normal_energy) || isnan(normal_energy)) normal_energy = 1e30f;
     if (isinf(problem_energy) || isnan(problem_energy)) problem_energy = 1e30f;
 
     float ratio = problem_energy / (normal_energy + 1e-6f);
-    
+
     printf("INFO: Detection Metrics:\r\n");
     printf("  Normal Band Energy (0-500Hz):\t\t%.2e\r\n", normal_energy);
     printf("  Problem Band Energy (1k-8kHz):\t%.2e\r\n", problem_energy);
@@ -206,7 +206,7 @@ void signal_error(void) {
         0x00,
     };
 
-    HAL_SPI_Transmit(&hspi2, buf, 3, 300);  
+    HAL_SPI_Transmit(&hspi2, buf, 3, 300);
     HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_SET);
     HAL_Delay(1);
     HAL_GPIO_WritePin(MATRIX_RCK_GPIO_Port, MATRIX_RCK_Pin, GPIO_PIN_RESET);
@@ -214,7 +214,7 @@ void signal_error(void) {
 
 /**
  * @brief Computes and prints estimated energy and power usage.
- * 
+ *
  * @param active_cycles Number of CPU cycles spent in active mode.
  * @param avg_active_cycles Average number of CPU cycles spent in active mode.
  * @param sleep_time_ms Time spent in sleep mode in milliseconds.
@@ -260,10 +260,10 @@ void machine_health_task(void) {
     printf("\r\n");
     printf("Machine Health Detection Started\r\n");
     printf("Sample Rate: %d Hz, Window: %d samples (~%d ms)\r\n", FS, INPUT_SIZE, (INPUT_SIZE * 1000) / FS);
-    
+
     cpu_freq = HAL_RCC_GetSysClockFreq();
     printf("System Clock Frequency: %" PRIu32 " Hz\r\n", cpu_freq);
-    
+
     // Enable the DWT cycle counter:
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0;
@@ -277,7 +277,7 @@ void machine_health_task(void) {
     while (1) {
         DWT->CYCCNT = 0;
         printf("--- ACTIVE MODE ---\r\n");
-        
+
         // Acquire microphone data via DFSDM + DMA
         mic_dma_finished = 0;
         if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, mic_buffer, INPUT_SIZE) != HAL_OK) {
@@ -289,15 +289,15 @@ void machine_health_task(void) {
             printf("ERROR: Failed to stop DFSDM!\r\n");
             Error_Handler();
         }
-        
+
         // Pre-process: Convert to float and normalize to [-1, 1]
         // DFSDM gain with Sinc4, 38x oversampling, 4x int oversampling is ~8.3e6
-        const float normalization_factor = 1.0f / 8388608.0f; 
+        const float normalization_factor = 1.0f / 8388608.0f;
         memset(in_buffer, 0, sizeof(in_buffer));
         for (int i = 0; i < INPUT_SIZE; i++) {
             in_buffer[i] = (float)mic_buffer[i] * normalization_factor;
         }
-        
+
         // Detect Anomaly
         toggle_algorithm = !toggle_algorithm;
         bool anomaly = detect_anomaly(in_buffer, fft_buffer, FFT_SIZE);
@@ -307,7 +307,7 @@ void machine_health_task(void) {
         } else {
             signal_normal();
         }
-        
+
         uint32_t active_cycles = DWT->CYCCNT;
         uint32_t avg_active_cycles;
 
@@ -328,7 +328,7 @@ void machine_health_task(void) {
         uint32_t t1 = get_rtc_ms();
         PM_EnterSleep(5);
         uint32_t t2 = get_rtc_ms();
-        
+
         if (t2 >= t1) {
             last_sleep_ms = t2 - t1;
         } else {
@@ -337,4 +337,3 @@ void machine_health_task(void) {
         printf("\r\n\r\n");
     }
 }
-
